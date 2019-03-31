@@ -83,29 +83,39 @@ namespace Kino
         /// Start glitching.
         public void Glitch()
         {
-            _sequence = 1;
+            Left._sequence = 1;
+            Right._sequence = 1;
         }
 
         /// Stop glitching.
         public void Reset()
         {
-            _sequence = 0;
+            Left._sequence = 0;
+            Right._sequence = 0;
         }
 
         #endregion
 
         #region Private properties
 
+        Camera cam;
+
         [SerializeField]
         Shader _shader;
 
         Material _material;
 
-        RenderTexture _workBuffer; // working buffer
-        RenderTexture _dispBuffer; // displacement buffer
+        private class MoshEye
+        {
+            public RenderTexture _workBuffer; // working buffer
+            public RenderTexture _dispBuffer; // displacement buffer
+            
+            public int _sequence;
+            public int _lastFrame;
+        }
 
-        int _sequence;
-        int _lastFrame;
+        private MoshEye Left = new MoshEye();
+        private MoshEye Right = new MoshEye();
 
         RenderTexture NewWorkBuffer(RenderTexture source)
         {
@@ -134,25 +144,34 @@ namespace Kino
 
         void OnEnable()
         {
+            cam = GetComponent<Camera>();
             _material = new Material(Shader.Find("Hidden/Kino/Datamosh"));
             _material.hideFlags = HideFlags.DontSave;
 
-            GetComponent<Camera>().depthTextureMode |=
+            cam.depthTextureMode |=
                 DepthTextureMode.Depth | DepthTextureMode.MotionVectors;
 
-            _sequence = 0;
+            Left._sequence = 0;
+            Right._sequence = 0;
         }
 
         void OnDisable()
         {
-            ReleaseBuffer(_workBuffer);
-            _workBuffer = null;
+            Disable(Left);
+            Disable(Right);
 
-            ReleaseBuffer(_dispBuffer);
-            _dispBuffer = null;
-
+            
             DestroyImmediate(_material);
             _material = null;
+        }
+
+        void Disable(MoshEye eye)
+        {
+            ReleaseBuffer(eye._workBuffer);
+            eye._workBuffer = null;
+
+            ReleaseBuffer(eye._dispBuffer);
+            eye._dispBuffer = null;
         }
 
         void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -163,58 +182,69 @@ namespace Kino
             _material.SetFloat("_Velocity", _velocityScale);
             _material.SetFloat("_Diffusion", _diffusion);
 
-            if (_sequence == 0)
+            MoshEye activeEye;
+
+            if(cam.stereoActiveEye == Camera.MonoOrStereoscopicEye.Mono)
+            {
+                activeEye = Left;
+            }
+            else
+            {
+                activeEye = cam.stereoActiveEye == Camera.MonoOrStereoscopicEye.Left ? Left : Right;
+            }
+
+            if (activeEye._sequence == 0)
             {
                 // Step 0: no effect, just keep the last frame.
 
                 // Update the working buffer with the current frame.
-                ReleaseBuffer(_workBuffer);
-                _workBuffer = NewWorkBuffer(source);
-                Graphics.Blit(source, _workBuffer);
+                ReleaseBuffer(activeEye._workBuffer);
+                activeEye._workBuffer = NewWorkBuffer(source);
+                Graphics.Blit(source, activeEye._workBuffer);
 
                 // Blit without effect.
                 Graphics.Blit(source, destination);
             }
-            else if (_sequence == 1)
+            else if (activeEye._sequence == 1)
             {
                 // Step 1: start effect, no moshing.
 
                 // Initialize the displacement buffer.
-                ReleaseBuffer(_dispBuffer);
-                _dispBuffer = NewDispBuffer(source);
-                Graphics.Blit(null, _dispBuffer, _material, 0);
+                ReleaseBuffer(activeEye._dispBuffer);
+                activeEye._dispBuffer = NewDispBuffer(source);
+                Graphics.Blit(null, activeEye._dispBuffer, _material, 0);
 
                 // Simply blit the working buffer because motion vectors
                 // might not be ready (because of camera switching).
-                Graphics.Blit(_workBuffer, destination);
+                Graphics.Blit(activeEye._dispBuffer, destination);
 
-                _sequence++;
+                activeEye._sequence++;
             }
             else
             {
                 // Step 2: apply effect.
 
-                if (Time.frameCount != _lastFrame)
+                if (Time.frameCount != activeEye._lastFrame)
                 {
                     // Update the displaceent buffer.
                     var newDisp = NewDispBuffer(source);
-                    Graphics.Blit(_dispBuffer, newDisp, _material, 1);
-                    ReleaseBuffer(_dispBuffer);
-                    _dispBuffer = newDisp;
+                    Graphics.Blit(activeEye._dispBuffer, newDisp, _material, 1);
+                    ReleaseBuffer(activeEye._dispBuffer);
+                    activeEye._dispBuffer = newDisp;
 
                     // Moshing!
                     var newWork = NewWorkBuffer(source);
-                    _material.SetTexture("_WorkTex", _workBuffer);
-                    _material.SetTexture("_DispTex", _dispBuffer);
+                    _material.SetTexture("_WorkTex", activeEye._workBuffer);
+                    _material.SetTexture("_DispTex", activeEye._dispBuffer);
                     Graphics.Blit(source, newWork, _material, 2);
-                    ReleaseBuffer(_workBuffer);
-                    _workBuffer = newWork;
+                    ReleaseBuffer(activeEye._workBuffer);
+                    activeEye._workBuffer = newWork;
 
-                    _lastFrame = Time.frameCount;
+                    activeEye._lastFrame = Time.frameCount;
                 }
 
                 // Blit the result.
-                Graphics.Blit(_workBuffer, destination);
+                Graphics.Blit(activeEye._workBuffer, destination);
             }
         }
 

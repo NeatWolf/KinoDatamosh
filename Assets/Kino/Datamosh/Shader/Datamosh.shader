@@ -1,3 +1,5 @@
+// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
+
 //
 // Kino/Datamosh - Glitch effect simulating video compression artifacts
 //
@@ -70,7 +72,7 @@ Shader "Hidden/Kino/Datamosh"
     v2f_multitex vert_multitex(appdata_full v)
     {
         v2f_multitex o;
-        o.pos = mul(UNITY_MATRIX_MVP, v.vertex);
+        o.pos = UnityObjectToClipPos(v.vertex);
         o.uv0 = v.texcoord.xy;
         o.uv1 = v.texcoord.xy;
     #if UNITY_UV_STARTS_AT_TOP
@@ -135,6 +137,7 @@ Shader "Hidden/Kino/Datamosh"
     // Moshing shader
     half4 frag_mosh(v2f_multitex i) : SV_Target
     {
+
         // Color from the original image
         half4 src = tex2D(_MainTex, i.uv1);
 
